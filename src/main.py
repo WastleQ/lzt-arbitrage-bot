@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import sys
+
 from aiohttp import web
 
 from bot.handlers import bot, dp
