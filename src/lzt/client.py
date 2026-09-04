@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Any
 
@@ -55,8 +56,8 @@ class LZTClient:
     async def search_items(self, category: str, params: dict[str, Any] | None = None) -> list[MarketItem]:
         endpoint_map = {
             "minecraft": "minecraft",
-            "brawlstars": "brawlstars",
-            "valorant": "valorant",
+            "brawlstars": "supercell",
+            "valorant": "riot",
         }
         path = endpoint_map.get(category, category)
         query_params = params or {}
