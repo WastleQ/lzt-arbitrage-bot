@@ -40,12 +40,18 @@ async def scanner_loop(bot_instance: Bot) -> None:
 
                     opportunity = arbitrage_engine.evaluate_item(item)
                     if opportunity:
+                        warnings_text = ""
+                        if opportunity.get("warnings"):
+                            warnings_text = "\n\n".join(opportunity["warnings"]) + "\n"
+
                         text = (
                             f"🔥 <b>Найдена выгодная сделка! [{category.upper()}]</b>\n\n"
                             f"🎮 <b>{item.title}</b>\n"
                             f"💰 Цена: <b>{item.price} ₽</b> (Оценка: {opportunity['estimated_price']} ₽)\n"
                             f"📈 Ожидаемый чистый профит: <b>+{opportunity['net_profit']} ₽</b> ({opportunity['roi']}% ROI)\n"
                             f"👤 Продавец: {item.seller_username}\n"
+                            f"{warnings_text}"
+                            f"⚡ Решение за вами:"
                         )
                         keyboard = get_deal_keyboard(item.item_id, item.price)
 

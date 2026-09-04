@@ -15,6 +15,7 @@ class ArbitrageEngine:
             "brawlstars": BrawlStarsEvaluator(),
             "valorant": ValorantEvaluator(),
         }
+        self.exclude_words = [w.strip().lower() for w in settings.exclude_words.split(",") if w.strip()]
 
     def evaluate_item(self, item: MarketItem) -> dict[str, Any] | None:
         evaluator = self.evaluators.get(item.category)
@@ -39,10 +40,32 @@ class ArbitrageEngine:
         if net_profit < settings.min_profit_rub or roi < settings.min_roi_percent:
             return None
 
-        return {
+        warnings: list[str] = []
+
+        # Анализ продавца (trust)
+        seller = item.raw_data.get("seller", {})
+        seller_trust = seller.get("trust", 0) if isinstance(seller, dict) else 0
+        if isinstance(seller_trust, int) and seller_trust < settings.min_seller_trust:
+            warnings.append(f"⚠️ Низкий рейтинг продавца ({seller_trust} < {settings.min_seller_trust})")
+
+        # Анализ возраста аккаунта (дней)
+        account_age = item.raw_data.get("account_age_days", 0)
+        if isinstance(account_age, int) and account_age > 0 and account_age < settings.min_account_age_days:
+            warnings.append(f"⚠️ Молодой аккаунт ({account_age} дней < {settings.min_account_age_days} дней)")
+
+        # Проверка на исключенные слова в названии
+        title_lower = item.title.lower()
+        found_excluded = [w for w in self.exclude_words if w in title_lower]
+        if found_excluded:
+            warnings.append(f"🚫 Обнаружены подозрительные слова: {', '.join(found_excluded)}")
+
+        result: dict[str, Any] = {
             "item": item,
             "estimated_price": estimated_price,
             "net_profit": round(net_profit, 2),
             "roi": round(roi, 1),
             "details": valuation.details,
+            "warnings": warnings,
         }
+
+        return result

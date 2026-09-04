@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     auto_buy_enabled: bool = False
     check_interval_seconds: float = 3.0
 
+    min_seller_trust: int = 0
+    min_account_age_days: int = 0
+    exclude_words: str = "откат,бан,нет почты"
+
     db_path: str = "data/arbitrage.db"
 
     model_config = SettingsConfigDict(
