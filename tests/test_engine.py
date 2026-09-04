@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
-from engine.arbitrage import ArbitrageEngine
-from lzt.schemas import MarketItem
+from src.engine.arbitrage import ArbitrageEngine
+from src.lzt.schemas import MarketItem
 
 
 def make_item(
@@ -10,6 +10,7 @@ def make_item(
     category: str = "minecraft",
     raw_data: dict | None = None,
     seller_username: str = "good_seller",
+    seller_trust: int = 0,
 ) -> MarketItem:
     return MarketItem(
         item_id=1,
@@ -20,18 +21,20 @@ def make_item(
         item_state="active",
         published_date=1234567890,
         seller_username=seller_username,
+        seller_trust=seller_trust,
+        item_url=f"https://lzt.market/{1}/",
         raw_data=raw_data or {},
     )
 
 
 def test_arbitrage_engine_no_warnings():
-    """Test that no warnings are generated for a clean, high-trust item."""
     engine = ArbitrageEngine()
     item = make_item(
         raw_data={
             "seller": {"trust": 999},
             "account_age_days": 100,
-        }
+        },
+        seller_trust=999,
     )
     result = engine.evaluate_item(item)
     assert result is not None
@@ -39,40 +42,109 @@ def test_arbitrage_engine_no_warnings():
 
 
 def test_arbitrage_engine_low_trust_warning():
-    """Test that a warning is generated when seller trust is too low."""
-    with patch("config.settings.min_seller_trust", 10):
+    with patch("src.config.settings.min_seller_trust", 10):
         engine = ArbitrageEngine()
         item = make_item(
-            raw_data={
-                "seller": {"trust": 5},
-                "account_age_days": 100,
-            }
+            raw_data={"seller": {"trust": 5}, "account_age_days": 100},
+            seller_trust=5,
         )
         result = engine.evaluate_item(item)
         assert result is not None
-        assert any("низкий рейтинг продавца" in w.lower() for w in result.get("warnings", []))
+        assert any("низкий рейтинг продавца" in w.lower() for w in result["warnings"])
 
 
 def test_arbitrage_engine_young_account_warning():
-    """Test that a warning is generated when account age is too young."""
-    with patch("config.settings.min_account_age_days", 30):
+    with patch("src.config.settings.min_account_age_days", 30):
         engine = ArbitrageEngine()
         item = make_item(
-            raw_data={
-                "seller": {"trust": 999},
-                "account_age_days": 5,
-            }
+            raw_data={"seller": {"trust": 999}, "account_age_days": 5},
+            seller_trust=999,
         )
         result = engine.evaluate_item(item)
         assert result is not None
-        assert any("молодой аккаунт" in w.lower() for w in result.get("warnings", []))
+        assert any("молодой аккаунт" in w.lower() for w in result["warnings"])
 
 
 def test_arbitrage_engine_excluded_words_warning():
-    """Test that a warning is generated when title contains excluded words."""
-    with patch("config.settings.exclude_words", "откат,бан"):
+    with patch("src.config.settings.exclude_words", "откат,бан"):
         engine = ArbitrageEngine()
         item = make_item(title="Minecraft Java (откат)")
         result = engine.evaluate_item(item)
         assert result is not None
-        assert any("откат" in w for w in result.get("warnings", []))
+        assert any("откат" in w for w in result["warnings"])
+
+
+def test_arbitrage_engine_profit_and_roi_calculation():
+    engine = ArbitrageEngine()
+    item = make_item(
+        title="Minecraft MVP+ Migrator 100 звёзд full access",
+        price=200.0,
+    )
+    result = engine.evaluate_item(item)
+    assert result is not None
+    assert result["net_profit"] > 0
+    assert result["resell_fee"] > 0
+    assert result["roi"] > 0
+    assert result["adjusted_roi"] <= result["roi"]
+
+
+def test_arbitrage_engine_skip_low_profit():
+    engine = ArbitrageEngine()
+    item = make_item(
+        title="Minecraft default",
+        price=10000.0,
+    )
+    result = engine.evaluate_item(item)
+    assert result is None
+
+
+def test_arbitrage_engine_unknown_category():
+    engine = ArbitrageEngine()
+    item = make_item(category="unknown", title="x", price=10.0)
+    assert engine.evaluate_item(item) is None
+
+
+def test_arbitrage_engine_currency_warning():
+    engine = ArbitrageEngine()
+    item = MarketItem(
+        item_id=1,
+        category="minecraft",
+        title="Minecraft MVP+",
+        price=100.0,
+        currency="USD",
+        item_state="active",
+        published_date=0,
+        seller_username="u",
+        item_url="",
+        raw_data={},
+    )
+    result = engine.evaluate_item(item)
+    assert result is not None
+    assert any("Валюта" in w for w in result["warnings"])
+
+
+def test_auto_buy_allowed_respects_max_price():
+    with (
+        patch("src.config.settings.auto_buy_enabled", True),
+        patch("src.config.settings.max_auto_buy_price", 100.0),
+    ):
+        engine = ArbitrageEngine()
+        item = make_item(
+            title="Minecraft MVP+ Migrator 100 звёзд full access", price=500.0
+        )
+        result = engine.evaluate_item(item)
+        assert result is not None
+        allowed, reason = engine.auto_buy_allowed(result)
+        assert not allowed
+        assert reason and "лимит" in reason
+
+
+def test_auto_buy_allowed_when_disabled():
+    with patch("src.config.settings.auto_buy_enabled", False):
+        engine = ArbitrageEngine()
+        item = make_item(title="Minecraft MVP+ 50 звёзд", price=100.0)
+        result = engine.evaluate_item(item)
+        assert result is not None
+        allowed, reason = engine.auto_buy_allowed(result)
+        assert not allowed
+        assert "Auto-Buy" in (reason or "")

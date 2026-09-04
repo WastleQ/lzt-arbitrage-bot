@@ -1,0 +1,51 @@
+categories:
+  minecraft:
+    base_price: 250.0
+    confidence: 0.90
+    weights:
+      mvp_plus: 450.0
+      mvp: 280.0
+      vip_plus: 160.0
+      vip: 90.0
+      minecon_cape: 2000.0
+      migrator_cape: 150.0
+      optifine_cape: 100.0
+      tenure_per_day: 1.66
+      full_access_multiplier: 1.25
+    bedwars_thresholds:
+      - { stars: 50, bonus: 100.0 }
+      - { stars: 150, bonus: 250.0 }
+      - { stars: 300, bonus: 400.0 }
+
+  brawlstars:
+    base_price: 100.0
+    confidence: 0.82
+    weights:
+      hypercharge_each: 40.0
+      star_shelly: 500.0
+      mecha: 100.0
+      legendary: 90.0
+    trophies_thresholds:
+      - { trophies: 15000, bonus: 120.0 }
+      - { trophies: 25000, bonus: 250.0 }
+      - { trophies: 40000, bonus: 400.0 }
+
+  valorant:
+    base_price: 300.0
+    confidence: 0.88
+    region_multipliers:
+      EU: 1.4
+      NA: 1.5
+      TR: 0.8
+    rank_bonuses:
+      radiant: 1000.0
+      immortal: 600.0
+      ascendant: 400.0
+      diamond: 250.0
+      plat: 150.0
+      gold: 100.0
+    knife_bonus_each: 450.0
+    premium_skin_bonus_each: 150.0
+    skins_count_thresholds:
+      - { count: 20, bonus: 250.0 }
+      - { count: 50, bonus: 500.0 }

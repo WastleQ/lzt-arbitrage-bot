@@ -1,77 +1,84 @@
 import re
 from typing import Any
 
-from evaluators.base import BaseEvaluator, ValuationResult
+from src.config import CATEGORIES_CONFIG
+from src.evaluators.base import BaseEvaluator, ValuationResult
 
 
 class MinecraftEvaluator(BaseEvaluator):
+    category = "minecraft"
+
+    def __init__(self) -> None:
+        cfg = (CATEGORIES_CONFIG.get("categories") or {}).get("minecraft") or {}
+        self._base = float(cfg.get("base_price", 250.0))
+        self._confidence = float(cfg.get("confidence", 0.90))
+        self._weights: dict[str, float] = cfg.get("weights") or {}
+        self._bw_thresholds: list[dict[str, float]] = (
+            cfg.get("bedwars_thresholds") or []
+        )
+        self._full_access_mult = float(
+            self._weights.get("full_access_multiplier", 1.25)
+        )
+        self._tenure_per_day = float(self._weights.get("tenure_per_day", 1.66))
+
     def evaluate(self, raw_data: dict[str, Any]) -> ValuationResult | None:
-        title = raw_data.get("title", "").lower()
-        description = raw_data.get("description", "").lower()
-        full_text = f"{title} {description}"
+        full_text = self.full_text(raw_data)
+        if self.parse_banned(full_text):
+            return None
+
         details: dict[str, Any] = {}
+        base_price = self._base
 
-        # Проверка на баны (если аккаунт в бане на Hypixel, он почти ничего не стоит)
-        if any(w in full_text for w in ["бан", "banned", "hypixel ban", "чс"]):
-            return None  # Пропускаем забаненные аккаунты
-
-        base_price = 250.0  # Базовая стоимость живой лицензии с почтой
-
-        # 1. Оценка отлеги (Tenure / Inactivity) по дням если есть в пропсах
-        # LZT часто передает отлегу в properties или заголовке
-        days_inactive = raw_data.get("days_inactive", 0)
+        days_inactive = int(raw_data.get("days_inactive", 0) or 0)
         if days_inactive > 30:
-            base_price += 50.0
+            base_price += min(days_inactive, 365) * self._tenure_per_day
             details["tenure_days"] = days_inactive
 
-        # 2. Оценка Hypixel рангов
         if any(w in full_text for w in ["mvp+", "mvpplus", "mvp +"]):
-            base_price += 450.0
+            base_price += float(self._weights.get("mvp_plus", 450.0))
             details["rank"] = "Hypixel MVP+"
         elif "mvp" in full_text:
-            base_price += 280.0
+            base_price += float(self._weights.get("mvp", 280.0))
             details["rank"] = "Hypixel MVP"
         elif "vip+" in full_text or "vip +" in full_text:
-            base_price += 160.0
+            base_price += float(self._weights.get("vip_plus", 160.0))
             details["rank"] = "Hypixel VIP+"
         elif "vip" in full_text:
-            base_price += 90.0
+            base_price += float(self._weights.get("vip", 90.0))
             details["rank"] = "Hypixel VIP"
         else:
             details["rank"] = "Default"
 
-        # 3. Парсинг звезд Bedwars (например: "150 звёзд", "200 star", "bw 300")
         bw_stars_match = re.search(r"(\d+)\s*(?:зв[её]зд|stars|bw)", full_text)
         if bw_stars_match:
             stars = int(bw_stars_match.group(1))
             details["bedwars_stars"] = stars
-            if stars > 300:
-                base_price += 400.0
-            elif stars > 150:
-                base_price += 250.0
-            elif stars > 50:
-                base_price += 100.0
+            for thr in sorted(self._bw_thresholds, key=lambda x: x["stars"]):
+                if stars > int(thr["stars"]):
+                    base_price += float(thr["bonus"])
 
-        # 4. Плащи (Migrator, OptiFine, Minecon)
-        if "migrator" in full_text:
-            base_price += 150.0
-            details["cape"] = "Migrator Cape"
+        capes_found: list[str] = []
         if "minecon" in full_text:
-            base_price += 2000.0  # Minecon плащи очень редкие и дорогие
-            details["cape"] = "Minecon Cape"
+            base_price += float(self._weights.get("minecon_cape", 2000.0))
+            capes_found.append("Minecon")
+        if "migrator" in full_text:
+            base_price += float(self._weights.get("migrator_cape", 150.0))
+            capes_found.append("Migrator")
         if "optifine" in full_text:
-            base_price += 100.0
-            details["cape"] = "OptiFine Cape"
+            base_price += float(self._weights.get("optifine_cape", 100.0))
+            capes_found.append("OptiFine")
+        if capes_found:
+            details["capes"] = capes_found
 
-        # 5. Полный доступ / почта
-        if any(w in full_text for w in ["full access", "родная почта", "авторег", "fa"]):
-            base_price *= 1.25
-            details["full_access"] = True
-        else:
-            details["full_access"] = False
+        full_access = any(
+            w in full_text for w in ["full access", "родная почта", "авторег", "fa"]
+        )
+        details["full_access"] = full_access
+        if full_access:
+            base_price *= self._full_access_mult
 
         return ValuationResult(
             estimated_price=round(base_price, 2),
-            confidence_score=0.90,
+            confidence_score=self._confidence,
             details=details,
         )

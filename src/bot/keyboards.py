@@ -2,30 +2,70 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 
 def get_deal_keyboard(item_id: int, price: float) -> InlineKeyboardMarkup:
-    keyboard = InlineKeyboardMarkup(
+    return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="⚡ Купить", callback_data=f"buy_{item_id}_{price}"
+                    text=f"⚡ Купить за {price:g}₽",
+                    callback_data=f"buy_{item_id}_{price}",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🚫 В чёрный список",
+                    callback_data=f"blacklist_{item_id}",
                 ),
                 InlineKeyboardButton(
                     text="❌ Пропустить", callback_data=f"skip_{item_id}"
                 ),
-            ]
+            ],
         ]
     )
-    return keyboard
 
 
 def get_main_keyboard(parser_active: bool) -> InlineKeyboardMarkup:
     status_text = "⏹ Остановить парсер" if parser_active else "▶️ Запустить парсер"
     status_action = "stop_parser" if parser_active else "start_parser"
 
-    keyboard = InlineKeyboardMarkup(
+    return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=status_text, callback_data=status_action)],
-            [InlineKeyboardButton(text="💰 Баланс LZT", callback_data="check_balance")],
-            [InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings")],
+            [
+                InlineKeyboardButton(
+                    text="💰 Баланс LZT", callback_data="check_balance"
+                ),
+                InlineKeyboardButton(text="📊 Статистика", callback_data="stats"),
+            ],
+            [
+                InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings"),
+                InlineKeyboardButton(text="🤖 Auto-Buy", callback_data="toggle_auto"),
+            ],
         ]
     )
-    return keyboard
+
+
+def get_settings_keyboard(
+    min_profit: float, min_roi: float, auto_buy: bool, cooldown: int
+) -> InlineKeyboardMarkup:
+    auto_label = "🟢 Auto-Buy Вкл" if auto_buy else "🔴 Auto-Buy Выкл"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"💵 Min Profit: {min_profit:g}₽", callback_data="set_profit"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"📈 Min ROI: {min_roi:g}%", callback_data="set_roi"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"⏱ Cooldown: {cooldown} мин", callback_data="set_cooldown"
+                )
+            ],
+            [InlineKeyboardButton(text=auto_label, callback_data="toggle_auto")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")],
+        ]
+    )
