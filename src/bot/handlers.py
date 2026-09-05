@@ -38,6 +38,7 @@ from src.db.database import (
 )
 from src.engine.arbitrage import ArbitrageEngine
 from src.lzt.client import LZTClient
+from src.utils.calibrator import MarketCalibrator
 from src.utils.logger import logger
 
 aiogram_exc = AiogramError
@@ -305,6 +306,28 @@ async def cb_stats(callback: CallbackQuery) -> None:
     text = format_stats(stats) + "\n\n<i>Период: последние 30 дней</i>"
     await callback.message.answer(text, parse_mode="HTML")
     await callback.answer()
+
+
+@dp.message(Command("calibrate"))
+async def cmd_calibrate(message: Message) -> None:
+    if not await _admin_guard(message):
+        return
+    msg = await message.answer("🔄 Запуск калибровки рыночных цен по LZT API...")
+    calibrator = MarketCalibrator(lzt_client)
+    res = await calibrator.calibrate_and_update_yaml()
+    if res.get("status") == "success":
+        report = res.get("report", {})
+        lines = ["✅ <b>Калибровка успешно завершена!</b>\n"]
+        for cat, data in report.items():
+            lines.append(
+                f"• <b>{cat.upper()}</b>: медиана рынка {data.get('median_price')}₽ "
+                f"(лотов: {data.get('sample_size')})"
+            )
+        await msg.edit_text("\n".join(lines), parse_mode="HTML")
+    else:
+        await msg.edit_text(
+            f"❌ Ошибка калибровки: {res.get('message', 'unknown')}"
+        )
 
 
 @dp.callback_query(F.data == "settings")
