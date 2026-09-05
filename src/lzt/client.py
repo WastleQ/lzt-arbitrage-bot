@@ -117,14 +117,17 @@ class LZTClient:
     async def get_my_balance(self) -> dict[str, float] | None:
         started = time.monotonic()
         data = await self._request("GET", "me")
-        if data and "user" in data:
-            user = data["user"]
+        logger.debug(f"Balance API response: {data}")
+        if data:
+            user = data.get("user") or data
+            balance = float(user.get("balance", user.get("money", 0.0)))
+            hold = float(user.get("hold", user.get("hold_money", 0.0)))
             logger.debug(
-                f"Balance fetched in {(time.monotonic() - started) * 1000:.0f}ms"
+                f"Balance fetched in {(time.monotonic() - started) * 1000:.0f}ms: balance={balance}, hold={hold}"
             )
             return {
-                "balance": float(user.get("balance", 0.0)),
-                "hold": float(user.get("hold", 0.0)),
+                "balance": balance,
+                "hold": hold,
             }
         return None
 
