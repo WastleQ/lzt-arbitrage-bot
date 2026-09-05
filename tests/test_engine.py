@@ -28,8 +28,27 @@ def make_item(
 
 
 def test_arbitrage_engine_no_warnings():
+    with patch("src.config.settings.min_profit_rub", 10.0), patch("src.config.settings.min_roi_percent", 5.0):
+        engine = ArbitrageEngine()
+        item = make_item(
+            title="Minecraft Java Default",
+            price=240.0,
+            raw_data={
+                "seller": {"trust": 999},
+                "account_age_days": 100,
+            },
+            seller_trust=999,
+        )
+        result = engine.evaluate_item(item)
+        assert result is not None
+        assert result.get("warnings") == []
+
+
+def test_price_drop_tracker():
     engine = ArbitrageEngine()
     item = make_item(
+        title="Minecraft Java Full Access Hypixel MVP+",
+        price=50.0,  # Огромная скидка от оценки ~175
         raw_data={
             "seller": {"trust": 999},
             "account_age_days": 100,
@@ -38,7 +57,8 @@ def test_arbitrage_engine_no_warnings():
     )
     result = engine.evaluate_item(item)
     assert result is not None
-    assert result.get("warnings") == []
+    assert result.get("price_drop_percent", 0.0) >= 25.0
+    assert any("слив цены" in w.lower() for w in result["warnings"])
 
 
 def test_arbitrage_engine_low_trust_warning():

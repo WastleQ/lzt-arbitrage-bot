@@ -77,6 +77,12 @@ class ArbitrageEngine:
             return None
 
         warnings: list[str] = self._collect_warnings(item, valuation)
+        price_drop_percent = 0.0
+        if estimated_price > 0 and buy_price < estimated_price:
+            drop = ((estimated_price - buy_price) / estimated_price) * 100.0
+            if drop >= 25.0:
+                price_drop_percent = round(drop, 1)
+                warnings.insert(0, f"🔥 <b>Слив цены!</b> Дисконт {price_drop_percent}% ниже рынка")
 
         result: dict[str, Any] = {
             "item": item,
@@ -89,6 +95,7 @@ class ArbitrageEngine:
             "confidence": valuation.confidence_score,
             "details": valuation.details,
             "warnings": warnings,
+            "price_drop_percent": price_drop_percent,
         }
         return result
 
