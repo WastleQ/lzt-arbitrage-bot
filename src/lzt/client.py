@@ -64,8 +64,18 @@ class LZTClient:
             try:
                 await self._rate_limiter.acquire()
                 session = await self._ensure_session()
+                request_kwargs: dict[str, Any] = {
+                    "params": params,
+                    "json": data,
+                    "timeout": 15,
+                }
+                if settings.proxy_url:
+                    request_kwargs["proxy"] = settings.proxy_url
+
                 async with session.request(
-                    method, url, params=params, json=data, timeout=15
+                    method,
+                    url,
+                    **request_kwargs,
                 ) as response:
                     if response.status == 200:
                         return await response.json()

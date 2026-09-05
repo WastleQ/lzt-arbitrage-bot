@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  lzt-bot:
+    build: .
+    container_name: lzt_arbitrage_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "8080:8080"

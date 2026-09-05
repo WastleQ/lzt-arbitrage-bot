@@ -76,6 +76,7 @@ class Settings(BaseSettings):
     seen_cooldown_minutes: int = 30
     min_balance_alert: float = 100.0
 
+    proxy_url: str | None = None
     rate_limit_rps: float = 2.0
     rate_limit_burst: int = 5
     request_retries: int = 4
