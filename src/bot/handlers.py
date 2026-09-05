@@ -16,12 +16,14 @@ from src.bot.formatters import (
     set_lzt_client,
 )
 from src.bot.keyboards import (
+    get_confirm_keyboard,
     get_deal_keyboard,
+    get_edit_keyboard,
     get_main_keyboard,
     get_settings_keyboard,
 )
 from src.bot.states import SettingsStates
-from src.config import settings
+from src.config import RUNTIME_MUTABLE_KEYS, settings
 from src.db.database import (
     blacklist_item as db_blacklist_item,
 )
@@ -61,14 +63,60 @@ def _is_admin(user_id: int | None) -> bool:
 
 
 async def _admin_guard(message_or_callback) -> bool:
-    user_id = (
-        message_or_callback.from_user.id if message_or_callback.from_user else None
-    )
+    user_id = message_or_callback.from_user.id if message_or_callback.from_user else None
     if not _is_admin(user_id):
         if isinstance(message_or_callback, Message):
             await message_or_callback.answer("⛔ У вас нет доступа к этому боту.")
         return False
     return True
+
+
+def update_runtime_setting(key: str, value: Any) -> None:
+    """Обновляет поле в settings (с pydantic-валидацией) и сохраняет в БД.
+
+    Синхронный хелпер — обёртка над `Settings.update` + `set_setting`.
+    Вызывается из async-обработчиков через `await set_setting(...)` отдельно.
+    """
+    if key not in RUNTIME_MUTABLE_KEYS:
+        raise ValueError(f"Setting {key!r} is not runtime-mutable")
+    settings.update(key, value)
+
+
+async def _apply_and_confirm(
+    callback: CallbackQuery,
+    state: FSMContext,
+    key: str,
+    value: Any,
+    display: str,
+) -> None:
+    """Применяет настройку и редактирует сообщение на «✅ Применено»."""
+    update_runtime_setting(key, value)
+    await set_setting(key, value)
+    await state.clear()
+    try:
+        await callback.message.edit_text(
+            f"✅ <b>Применено:</b> {display}\n\n"
+            f"Изменение вступит в силу немедленно для новых сделок.",
+            reply_markup=get_settings_keyboard(
+                settings.min_profit_rub,
+                settings.min_roi_percent,
+                settings.auto_buy_enabled,
+                settings.seen_cooldown_minutes,
+            ),
+            parse_mode="HTML",
+        )
+    except aiogram_exc:
+        await callback.message.answer(
+            f"✅ <b>Применено:</b> {display}",
+            reply_markup=get_settings_keyboard(
+                settings.min_profit_rub,
+                settings.min_roi_percent,
+                settings.auto_buy_enabled,
+                settings.seen_cooldown_minutes,
+            ),
+            parse_mode="HTML",
+        )
+    logger.info(f"Setting {key} = {value!r} applied by admin")
 
 
 async def _balance_monitor_loop() -> None:
@@ -79,10 +127,7 @@ async def _balance_monitor_loop() -> None:
             if not balances:
                 continue
             available = balances.get("balance", 0.0) - balances.get("hold", 0.0)
-            if (
-                available < settings.min_balance_alert
-                and not _state["low_balance_notified"]
-            ):
+            if available < settings.min_balance_alert and not _state["low_balance_notified"]:
                 _state["low_balance_notified"] = True
                 try:
                     await bot.send_message(
@@ -112,17 +157,14 @@ async def _search_one_category(category: str) -> list[Any]:
 async def scanner_loop(bot_instance: Bot) -> None:
     while _state["is_running"]:
         categories = [
-            c
-            for c in settings.enabled_category_list()
-            if c in arbitrage_engine.evaluators
+            c for c in settings.enabled_category_list() if c in arbitrage_engine.evaluators
         ]
         if not categories:
             await asyncio.sleep(5)
             continue
 
         results = await asyncio.gather(
-            *(_search_one_category(c) for c in categories),
-            return_exceptions=False,
+            *(_search_one_category(c) for c in categories), return_exceptions=False
         )
 
         for category, items in zip(categories, results, strict=False):
@@ -184,7 +226,9 @@ async def scanner_loop(bot_instance: Bot) -> None:
                 except asyncio.CancelledError:
                     raise
                 except (OSError, RuntimeError, ValueError) as exc:
-                    logger.exception(f"scanner loop item {item.item_id} failed: {exc}")
+                    logger.exception(
+                        f"scanner loop item {item.item_id} failed: {exc}"
+                    )
 
         await asyncio.sleep(settings.check_interval_seconds)
 
@@ -264,19 +308,32 @@ async def cb_stats(callback: CallbackQuery) -> None:
 
 
 @dp.callback_query(F.data == "settings")
-async def cb_settings(callback: CallbackQuery) -> None:
+async def cb_settings(callback: CallbackQuery, state: FSMContext) -> None:
     if not await _admin_guard(callback):
         return
-    await callback.message.edit_text(
-        "⚙️ <b>Настройки</b>\n\nТекущие пороги. Нажмите, чтобы изменить:",
-        reply_markup=get_settings_keyboard(
-            settings.min_profit_rub,
-            settings.min_roi_percent,
-            settings.auto_buy_enabled,
-            settings.seen_cooldown_minutes,
-        ),
-        parse_mode="HTML",
-    )
+    await state.clear()
+    try:
+        await callback.message.edit_text(
+            "⚙️ <b>Настройки</b>\n\nТекущие пороги. Нажмите, чтобы изменить:",
+            reply_markup=get_settings_keyboard(
+                settings.min_profit_rub,
+                settings.min_roi_percent,
+                settings.auto_buy_enabled,
+                settings.seen_cooldown_minutes,
+            ),
+            parse_mode="HTML",
+        )
+    except aiogram_exc:
+        await callback.message.answer(
+            "⚙️ <b>Настройки</b>",
+            reply_markup=get_settings_keyboard(
+                settings.min_profit_rub,
+                settings.min_roi_percent,
+                settings.auto_buy_enabled,
+                settings.seen_cooldown_minutes,
+            ),
+            parse_mode="HTML",
+        )
     await callback.answer()
 
 
@@ -285,24 +342,58 @@ async def cb_back_main(callback: CallbackQuery, state: FSMContext) -> None:
     if not await _admin_guard(callback):
         return
     await state.clear()
-    await callback.message.edit_text(
-        "🤖 <b>Панель управления</b>",
-        reply_markup=get_main_keyboard(_state["is_running"]),
-        parse_mode="HTML",
-    )
+    try:
+        await callback.message.edit_text(
+            "🤖 <b>Панель управления</b>",
+            reply_markup=get_main_keyboard(_state["is_running"]),
+            parse_mode="HTML",
+        )
+    except aiogram_exc:
+        await callback.message.answer(
+            "🤖 <b>Панель управления</b>",
+            reply_markup=get_main_keyboard(_state["is_running"]),
+            parse_mode="HTML",
+        )
     await callback.answer()
 
 
 @dp.callback_query(F.data == "toggle_auto")
-async def cb_toggle_auto(callback: CallbackQuery) -> None:
+async def cb_toggle_auto(callback: CallbackQuery, state: FSMContext) -> None:
     if not await _admin_guard(callback):
         return
     new_value = not settings.auto_buy_enabled
-    object.__setattr__(settings, "auto_buy_enabled", new_value)
+    update_runtime_setting("auto_buy_enabled", new_value)
     await set_setting("auto_buy_enabled", new_value)
-    status = "🟢 Включён" if new_value else "🔴 Выключен"
-    await callback.answer(f"Auto-Buy: {status}", show_alert=True)
-    await cb_settings(callback)
+    await state.clear()
+    status_text = "🟢 Auto-Buy включён" if new_value else "🔴 Auto-Buy выключен"
+    await callback.answer(status_text)
+    try:
+        await callback.message.edit_text(
+            f"⚙️ <b>Настройки</b>\n\n<i>{status_text}</i>",
+            reply_markup=get_settings_keyboard(
+                settings.min_profit_rub,
+                settings.min_roi_percent,
+                settings.auto_buy_enabled,
+                settings.seen_cooldown_minutes,
+            ),
+            parse_mode="HTML",
+        )
+    except aiogram_exc:
+        await callback.message.answer(
+            "⚙️ <b>Настройки</b>",
+            reply_markup=get_settings_keyboard(
+                settings.min_profit_rub,
+                settings.min_roi_percent,
+                settings.auto_buy_enabled,
+                settings.seen_cooldown_minutes,
+            ),
+            parse_mode="HTML",
+        )
+
+
+# =============================================================================
+# FSM для /settings — 2-step (ввод значения → подтверждение → применение)
+# =============================================================================
 
 
 @dp.callback_query(F.data == "set_profit")
@@ -310,9 +401,71 @@ async def cb_set_profit(callback: CallbackQuery, state: FSMContext) -> None:
     if not await _admin_guard(callback):
         return
     await state.set_state(SettingsStates.waiting_profit)
-    await callback.message.answer(
-        f"Введите новый <b>min profit</b> в рублях (сейчас {settings.min_profit_rub:g}):",
+    await state.update_data(edit_message_id=callback.message.message_id)
+    await callback.message.edit_text(
+        f"💵 <b>Новый Min Profit</b>\n\n"
+        f"Сейчас: <b>{settings.min_profit_rub:g}₽</b>\n"
+        f"Введите новое значение (0 = без ограничения).",
+        reply_markup=get_edit_keyboard(cancel_action="cancel_edit"),
         parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@dp.message(SettingsStates.waiting_profit)
+async def process_profit_input(message: Message, state: FSMContext) -> None:
+    if not await _admin_guard(message):
+        await state.clear()
+        return
+    text = (message.text or "").strip().replace(",", ".")
+    try:
+        value = float(text)
+    except ValueError:
+        await message.answer("❌ Введите число, например: <code>150</code> или <code>0</code>.")
+        return
+    if value < 0:
+        await message.answer("❌ Число должно быть ≥ 0.")
+        return
+
+    await state.update_data(pending_value=value)
+    await state.set_state(SettingsStates.confirm_profit)
+    try:
+        await message.bot.edit_message_text(
+            f"💵 <b>Подтвердите изменение</b>\n\n"
+            f"Min Profit: <b>{settings.min_profit_rub:g}₽</b> → <b>{value:g}₽</b>",
+            chat_id=message.chat.id,
+            message_id=(await state.get_data())["edit_message_id"],
+            reply_markup=get_confirm_keyboard("confirm_profit"),
+            parse_mode="HTML",
+        )
+    except (aiogram_exc, KeyError):
+        await message.answer(
+            f"💵 <b>Подтвердите:</b> Min Profit = <b>{value:g}₽</b>?",
+            reply_markup=get_confirm_keyboard("confirm_profit"),
+            parse_mode="HTML",
+        )
+    # Удаляем служебное сообщение пользователя с вводом числа
+    try:
+        await message.delete()
+    except (aiogram_exc, OSError):
+        pass
+
+
+@dp.callback_query(F.data == "confirm_profit")
+async def cb_confirm_profit(callback: CallbackQuery, state: FSMContext) -> None:
+    if not await _admin_guard(callback):
+        return
+    data = await state.get_data()
+    value = data.get("pending_value")
+    if value is None:
+        await callback.answer("Сначала введите значение", show_alert=True)
+        return
+    await _apply_and_confirm(
+        callback,
+        state,
+        "min_profit_rub",
+        value,
+        f"Min Profit = {value:g}₽",
     )
     await callback.answer()
 
@@ -322,9 +475,66 @@ async def cb_set_roi(callback: CallbackQuery, state: FSMContext) -> None:
     if not await _admin_guard(callback):
         return
     await state.set_state(SettingsStates.waiting_roi)
-    await callback.message.answer(
-        f"Введите новый <b>min ROI %</b> (сейчас {settings.min_roi_percent:g}):",
+    await state.update_data(edit_message_id=callback.message.message_id)
+    await callback.message.edit_text(
+        f"📈 <b>Новый Min ROI %</b>\n\n"
+        f"Сейчас: <b>{settings.min_roi_percent:g}%</b>\n"
+        f"Введите новое значение (0 = без ограничения).",
+        reply_markup=get_edit_keyboard(cancel_action="cancel_edit"),
         parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@dp.message(SettingsStates.waiting_roi)
+async def process_roi_input(message: Message, state: FSMContext) -> None:
+    if not await _admin_guard(message):
+        await state.clear()
+        return
+    text = (message.text or "").strip().replace(",", ".")
+    try:
+        value = float(text)
+    except ValueError:
+        await message.answer("❌ Введите число, например: <code>25</code>.")
+        return
+    if value < 0 or value > 1000:
+        await message.answer("❌ Введите число от 0 до 1000.")
+        return
+
+    await state.update_data(pending_value=value)
+    await state.set_state(SettingsStates.confirm_roi)
+    try:
+        await message.bot.edit_message_text(
+            f"📈 <b>Подтвердите изменение</b>\n\n"
+            f"Min ROI: <b>{settings.min_roi_percent:g}%</b> → <b>{value:g}%</b>",
+            chat_id=message.chat.id,
+            message_id=(await state.get_data())["edit_message_id"],
+            reply_markup=get_confirm_keyboard("confirm_roi"),
+            parse_mode="HTML",
+        )
+    except (aiogram_exc, KeyError):
+        await message.answer(
+            f"📈 <b>Подтвердите:</b> Min ROI = <b>{value:g}%</b>?",
+            reply_markup=get_confirm_keyboard("confirm_roi"),
+            parse_mode="HTML",
+        )
+    try:
+        await message.delete()
+    except (aiogram_exc, OSError):
+        pass
+
+
+@dp.callback_query(F.data == "confirm_roi")
+async def cb_confirm_roi(callback: CallbackQuery, state: FSMContext) -> None:
+    if not await _admin_guard(callback):
+        return
+    data = await state.get_data()
+    value = data.get("pending_value")
+    if value is None:
+        await callback.answer("Сначала введите значение", show_alert=True)
+        return
+    await _apply_and_confirm(
+        callback, state, "min_roi_percent", value, f"Min ROI = {value:g}%"
     )
     await callback.answer()
 
@@ -334,74 +544,103 @@ async def cb_set_cooldown(callback: CallbackQuery, state: FSMContext) -> None:
     if not await _admin_guard(callback):
         return
     await state.set_state(SettingsStates.waiting_cooldown)
-    await callback.message.answer(
-        f"Введите <b>cooldown</b> для seen_items в минутах "
-        f"(сейчас {settings.seen_cooldown_minutes}, 0 = навсегда):",
+    await state.update_data(edit_message_id=callback.message.message_id)
+    await callback.message.edit_text(
+        f"⏱ <b>Cooldown seen_items (минуты)</b>\n\n"
+        f"Сейчас: <b>{settings.seen_cooldown_minutes} мин</b>\n"
+        f"Введите новое значение (0 = навсегда).",
+        reply_markup=get_edit_keyboard(cancel_action="cancel_edit"),
         parse_mode="HTML",
     )
     await callback.answer()
 
 
-@dp.message(SettingsStates.waiting_profit)
-async def process_profit(message: Message, state: FSMContext) -> None:
-    if not await _admin_guard(message):
-        await state.clear()
-        return
-    try:
-        value = float(message.text.replace(",", "."))
-        if value < 0:
-            raise ValueError
-    except ValueError:
-        await message.answer("❌ Введите положительное число.")
-        return
-    object.__setattr__(settings, "min_profit_rub", value)
-    await set_setting("min_profit_rub", value)
-    await state.clear()
-    await message.answer(
-        f"✅ Min profit = {value:g}₽",
-        reply_markup=get_main_keyboard(_state["is_running"]),
-    )
-
-
-@dp.message(SettingsStates.waiting_roi)
-async def process_roi(message: Message, state: FSMContext) -> None:
-    if not await _admin_guard(message):
-        await state.clear()
-        return
-    try:
-        value = float(message.text.replace(",", "."))
-        if value < 0:
-            raise ValueError
-    except ValueError:
-        await message.answer("❌ Введите положительное число.")
-        return
-    object.__setattr__(settings, "min_roi_percent", value)
-    await set_setting("min_roi_percent", value)
-    await state.clear()
-    await message.answer(
-        f"✅ Min ROI = {value:g}%", reply_markup=get_main_keyboard(_state["is_running"])
-    )
-
-
 @dp.message(SettingsStates.waiting_cooldown)
-async def process_cooldown(message: Message, state: FSMContext) -> None:
+async def process_cooldown_input(message: Message, state: FSMContext) -> None:
     if not await _admin_guard(message):
         await state.clear()
         return
+    text = (message.text or "").strip()
     try:
-        value = int(message.text.strip())
-        if value < 0:
-            raise ValueError
+        value = int(text)
     except ValueError:
-        await message.answer("❌ Введите целое число ≥ 0.")
+        await message.answer("❌ Введите целое число, например: <code>30</code>.")
         return
-    object.__setattr__(settings, "seen_cooldown_minutes", value)
-    await set_setting("seen_cooldown_minutes", value)
-    await state.clear()
-    await message.answer(
-        f"✅ Cooldown = {value} мин",
-        reply_markup=get_main_keyboard(_state["is_running"]),
+    if value < 0 or value > 10080:  # неделя
+        await message.answer("❌ Введите число от 0 до 10080 (неделя).")
+        return
+
+    await state.update_data(pending_value=value)
+    await state.set_state(SettingsStates.confirm_cooldown)
+    try:
+        await message.bot.edit_message_text(
+            f"⏱ <b>Подтвердите изменение</b>\n\n"
+            f"Cooldown: <b>{settings.seen_cooldown_minutes} мин</b> → <b>{value} мин</b>",
+            chat_id=message.chat.id,
+            message_id=(await state.get_data())["edit_message_id"],
+            reply_markup=get_confirm_keyboard("confirm_cooldown"),
+            parse_mode="HTML",
+        )
+    except (aiogram_exc, KeyError):
+        await message.answer(
+            f"⏱ <b>Подтвердите:</b> Cooldown = <b>{value} мин</b>?",
+            reply_markup=get_confirm_keyboard("confirm_cooldown"),
+            parse_mode="HTML",
+        )
+    try:
+        await message.delete()
+    except (aiogram_exc, OSError):
+        pass
+
+
+@dp.callback_query(F.data == "confirm_cooldown")
+async def cb_confirm_cooldown(callback: CallbackQuery, state: FSMContext) -> None:
+    if not await _admin_guard(callback):
+        return
+    data = await state.get_data()
+    value = data.get("pending_value")
+    if value is None:
+        await callback.answer("Сначала введите значение", show_alert=True)
+        return
+    await _apply_and_confirm(
+        callback, state, "seen_cooldown_minutes", value, f"Cooldown = {value} мин"
     )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "cancel_edit")
+async def cb_cancel_edit(callback: CallbackQuery, state: FSMContext) -> None:
+    if not await _admin_guard(callback):
+        return
+    await state.clear()
+    try:
+        await callback.message.edit_text(
+            "⚙️ <b>Настройки</b>\n\nИзменение отменено.",
+            reply_markup=get_settings_keyboard(
+                settings.min_profit_rub,
+                settings.min_roi_percent,
+                settings.auto_buy_enabled,
+                settings.seen_cooldown_minutes,
+            ),
+            parse_mode="HTML",
+        )
+    except aiogram_exc:
+        await callback.message.answer(
+            "⚙️ <b>Настройки</b>\n\nИзменение отменено.",
+            reply_markup=get_settings_keyboard(
+                settings.min_profit_rub,
+                settings.min_roi_percent,
+                settings.auto_buy_enabled,
+                settings.seen_cooldown_minutes,
+            ),
+            parse_mode="HTML",
+        )
+    await callback.answer("Отменено")
+
+
+# =============================================================================
+# Конец блока настроек
+# =============================================================================
 
 
 @dp.callback_query(F.data.startswith("buy_"))

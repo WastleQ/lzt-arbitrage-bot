@@ -143,6 +143,15 @@ class Database:
             )
             await db.commit()
 
+    async def get_all_trades(self) -> list[dict[str, Any]]:
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM trades ORDER BY purchased_at DESC"
+            ) as cur:
+                rows = await cur.fetchall()
+                return [dict(r) for r in rows]
+
     async def stats(self, since: datetime | None = None) -> dict[str, Any]:
         where = ""
         params: tuple = ()
@@ -204,6 +213,20 @@ class Database:
             )
             await db.commit()
 
+    async def load_all_kv(self) -> dict[str, Any]:
+        """Загружает все runtime-настройки из settings_kv (для apply_overrides)."""
+        result: dict[str, Any] = {}
+        async with aiosqlite.connect(self.path) as db, db.execute(
+            "SELECT key, value FROM settings_kv"
+        ) as cur:
+            rows = await cur.fetchall()
+        for key, value in rows:
+            try:
+                result[key] = json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                result[key] = value
+        return result
+
 
 db = Database()
 
@@ -252,3 +275,11 @@ async def get_setting(key: str, default: Any = None) -> Any:
 
 async def set_setting(key: str, value: Any) -> None:
     await db.set_kv(key, value)
+
+
+async def load_all_settings() -> dict[str, Any]:
+    return await db.load_all_kv()
+
+
+async def get_all_trades() -> list[dict[str, Any]]:
+    return await db.get_all_trades()

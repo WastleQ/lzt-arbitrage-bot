@@ -40,9 +40,18 @@ class ArbitrageEngine:
         if not evaluator:
             return None
 
+        self.exclude_words = settings.excluded_word_list()
+        title_lower = item.title.lower()
         merged: dict[str, Any] = dict(item.raw_data)
         merged.setdefault("title", item.title)
         merged.setdefault("description", merged.get("description", ""))
+        desc_lower = merged.get("description", "").lower()
+
+        for word in self.exclude_words:
+            if word and (word in title_lower or word in desc_lower):
+                logger.debug(f"Skip item {item.item_id}: matched exclude word '{word}'")
+                return None
+
         valuation: ValuationResult | None = evaluator.evaluate(merged)
         if not valuation:
             return None

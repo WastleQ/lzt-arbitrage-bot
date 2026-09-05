@@ -65,13 +65,12 @@ def test_arbitrage_engine_young_account_warning():
         assert any("молодой аккаунт" in w.lower() for w in result["warnings"])
 
 
-def test_arbitrage_engine_excluded_words_warning():
+def test_arbitrage_engine_excluded_words_rejection():
     with patch("src.config.settings.exclude_words", "откат,бан"):
         engine = ArbitrageEngine()
         item = make_item(title="Minecraft Java (откат)")
         result = engine.evaluate_item(item)
-        assert result is not None
-        assert any("откат" in w for w in result["warnings"])
+        assert result is None
 
 
 def test_arbitrage_engine_profit_and_roi_calculation():

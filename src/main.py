@@ -6,7 +6,7 @@ from aiohttp import web
 
 from src.bot.handlers import bot, dp, lzt_client
 from src.config import settings
-from src.db.database import init_db
+from src.db.database import init_db, load_all_settings
 from src.utils.logger import logger, setup_logging
 
 
@@ -53,6 +53,14 @@ async def main() -> None:
 
     logger.info(f"LZT Arbitrage Bot v{settings.version} starting...")
     await init_db()
+
+    persisted = await load_all_settings()
+    if persisted:
+        try:
+            settings.apply_overrides(persisted)
+            logger.info(f"Loaded {len(persisted)} persisted settings from DB")
+        except (ValueError, TypeError, OSError) as exc:
+            logger.warning(f"Failed to apply persisted settings: {exc}")
 
     runner = await start_web_server()
     shutdown_event = asyncio.Event()

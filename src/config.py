@@ -1,11 +1,53 @@
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src import __version__
+
+# Ключи, которые разрешено менять в рантайме через /settings и хранить в settings_kv.
+# Эти поля pydantic-settings не перечитывает из env (они динамические).
+RUNTIME_MUTABLE_KEYS: frozenset[str] = frozenset(
+    {
+        "min_profit_rub",
+        "min_roi_percent",
+        "auto_buy_enabled",
+        "auto_relist_enabled",
+        "relist_markup_percent",
+        "min_seller_trust",
+        "min_account_age_days",
+        "exclude_words",
+        "max_auto_buy_price",
+        "confirm_above_price",
+        "seen_cooldown_minutes",
+        "min_balance_alert",
+        "check_interval_seconds",
+        "enabled_categories",
+    }
+)
+
+# Ключи, которые НЕЛЬЗЯ менять из бота (секреты, infra, логирование).
+IMMUTABLE_KEYS: frozenset[str] = frozenset(
+    {
+        "bot_token",
+        "admin_id",
+        "lzt_api_token",
+        "db_path",
+        "log_level",
+        "log_file",
+        "log_rotation",
+        "log_retention",
+        "rate_limit_rps",
+        "rate_limit_burst",
+        "request_retries",
+        "request_backoff_base",
+        "categories_config_path",
+        "version",
+    }
+)
 
 
 class Settings(BaseSettings):
@@ -19,6 +61,8 @@ class Settings(BaseSettings):
     min_profit_rub: float = 100.0
     min_roi_percent: float = 25.0
     auto_buy_enabled: bool = False
+    auto_relist_enabled: bool = False
+    relist_markup_percent: float = 30.0
     check_interval_seconds: float = 3.0
 
     min_seller_trust: int = 0
@@ -54,24 +98,43 @@ class Settings(BaseSettings):
         env_ignore_empty=True,
     )
 
-    @field_validator("bot_token", "lzt_api_token")
-    @classmethod
-    def _validate_not_placeholder(cls, value: str, info: Any) -> str:
-        bad = ("test_", "your_", "changeme")
-        if any(value.lower().startswith(b) for b in bad) and not info.data.get(
-            "_is_test"
-        ):
-            pass
-        return value
-
     def enabled_category_list(self) -> list[str]:
         return [c.strip() for c in self.enabled_categories.split(",") if c.strip()]
 
     def excluded_word_list(self) -> list[str]:
         return [w.strip().lower() for w in self.exclude_words.split(",") if w.strip()]
 
+    def update(self, key: str, value: Any) -> None:
+        """Безопасно обновляет runtime-mutable поле и валидирует через pydantic."""
+        if key not in RUNTIME_MUTABLE_KEYS:
+            raise ValueError(f"Setting {key!r} is not runtime-mutable")
+        coerced = self.__class__.model_validate({**self.model_dump(), key: value})
+        setattr(self, key, getattr(coerced, key))
+
+    def apply_overrides(self, overrides: dict[str, Any]) -> None:
+        """Применяет dict переопределений (например, загруженный из settings_kv)."""
+        if not overrides:
+            return
+        filtered = {k: v for k, v in overrides.items() if k in RUNTIME_MUTABLE_KEYS}
+        if not filtered:
+            return
+        coerced = self.__class__.model_validate({**self.model_dump(), **filtered})
+        for key in filtered:
+            setattr(self, key, getattr(coerced, key))
+
+    def runtime_snapshot(self) -> dict[str, Any]:
+        """Снимок runtime-mutable полей для сохранения в БД."""
+        return {k: getattr(self, k) for k in RUNTIME_MUTABLE_KEYS}
+
 
 settings = Settings()
+
+
+def reload_settings() -> Settings:
+    """Перезагружает settings из env (используется в тестах)."""
+    global settings
+    settings = Settings()
+    return settings
 
 
 def _load_categories_yaml() -> dict[str, Any]:

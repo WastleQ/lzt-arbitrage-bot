@@ -65,7 +65,32 @@ def get_settings_keyboard(
                     text=f"⏱ Cooldown: {cooldown} мин", callback_data="set_cooldown"
                 )
             ],
-            [InlineKeyboardButton(text=auto_label, callback_data="toggle_auto")],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")],
+    [InlineKeyboardButton(text=auto_label, callback_data="toggle_auto")],
+    [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")],
+]
+)
+
+
+def get_edit_keyboard(cancel_action: str = "settings") -> InlineKeyboardMarkup:
+    """Клавиатура с одной кнопкой «Отмена» для FSM-ввода значения."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data=cancel_action)]
+        ]
+    )
+
+
+def get_confirm_keyboard(
+    confirm_action: str, cancel_action: str = "settings"
+) -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения значения (2-step apply)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Применить", callback_data=confirm_action
+                ),
+                InlineKeyboardButton(text="❌ Отмена", callback_data=cancel_action),
+            ]
         ]
     )
