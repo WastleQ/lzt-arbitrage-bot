@@ -17,6 +17,7 @@ RUNTIME_MUTABLE_KEYS: frozenset[str] = frozenset(
         "auto_buy_enabled",
         "auto_relist_enabled",
         "relist_markup_percent",
+        "require_full_access",
         "min_seller_trust",
         "min_account_age_days",
         "exclude_words",
@@ -63,11 +64,12 @@ class Settings(BaseSettings):
     auto_buy_enabled: bool = False
     auto_relist_enabled: bool = False
     relist_markup_percent: float = 30.0
+    require_full_access: bool = True
     check_interval_seconds: float = 3.0
 
     min_seller_trust: int = 0
     min_account_age_days: int = 0
-    exclude_words: str = "откат,бан,нет почты"
+    exclude_words: str = "откат,бан,без почты,почта не меняется,без смены почты"
 
     db_path: str = "data/arbitrage.db"
 

@@ -52,6 +52,24 @@ class ArbitrageEngine:
                 logger.debug(f"Skip item {item.item_id}: matched exclude word '{word}'")
                 return None
 
+        if settings.require_full_access:
+            mail_access = item.raw_data.get("mail_access")
+            if mail_access is False or str(mail_access).lower() in ("0", "false", "no"):
+                logger.debug(f"Skip item {item.item_id}: mail_access is False")
+                return None
+
+            no_access_phrases = [
+                "без почты",
+                "почта не меняется",
+                "без смены почты",
+                "временная почта",
+                "авторег без доступа",
+            ]
+            full_text = f"{title_lower} {desc_lower}"
+            if any(p in full_text for p in no_access_phrases):
+                logger.debug(f"Skip item {item.item_id}: lacks full access / email change")
+                return None
+
         valuation: ValuationResult | None = evaluator.evaluate(merged)
         if not valuation:
             return None
