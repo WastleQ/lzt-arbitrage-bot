@@ -1,13 +1,14 @@
 import asyncio
 import os
+import signal
 import sys
 
 from aiohttp import web
 
-from src.bot.handlers import bot, dp, lzt_client
-from src.config import settings
-from src.db.database import init_db, load_all_settings
-from src.utils.logger import logger, setup_logging
+from bot.handlers import bot, dp, lzt_client
+from config import settings
+from db.database import init_db, load_all_settings
+from utils.logger import logger, setup_logging
 
 
 async def handle_health(request: web.Request) -> web.Response:
@@ -67,8 +68,8 @@ async def main() -> None:
 
     loop = asyncio.get_running_loop()
     for sig in (
-        asyncio.unix_events.SignalType.SIGTERM,
-        asyncio.unix_events.SignalType.SIGINT,
+        signal.SIGTERM,
+        signal.SIGINT,
     ):
         try:
             loop.add_signal_handler(sig, shutdown_event.set)
