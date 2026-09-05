@@ -29,50 +29,90 @@ class MinecraftEvaluator(BaseEvaluator):
         details: dict[str, Any] = {}
         base_price = self._base
 
+        # Проверка структурированных полей API (если переданы)
+        api_rank = str(raw_data.get("hypixel_rank", "")).lower()
+        if api_rank:
+            if "mvp+" in api_rank or "mvpplus" in api_rank:
+                base_price += float(self._weights.get("mvp_plus", 450.0))
+                details["rank"] = "Hypixel MVP+ (API)"
+            elif "mvp" in api_rank:
+                base_price += float(self._weights.get("mvp", 280.0))
+                details["rank"] = "Hypixel MVP (API)"
+            elif "vip+" in api_rank:
+                base_price += float(self._weights.get("vip_plus", 160.0))
+                details["rank"] = "Hypixel VIP+ (API)"
+            elif "vip" in api_rank:
+                base_price += float(self._weights.get("vip", 90.0))
+                details["rank"] = "Hypixel VIP (API)"
+        else:
+            if any(w in full_text for w in ["mvp+", "mvpplus", "mvp +"]):
+                base_price += float(self._weights.get("mvp_plus", 450.0))
+                details["rank"] = "Hypixel MVP+"
+            elif "mvp" in full_text:
+                base_price += float(self._weights.get("mvp", 280.0))
+                details["rank"] = "Hypixel MVP"
+            elif "vip+" in full_text or "vip +" in full_text:
+                base_price += float(self._weights.get("vip_plus", 160.0))
+                details["rank"] = "Hypixel VIP+"
+            elif "vip" in full_text:
+                base_price += float(self._weights.get("vip", 90.0))
+                details["rank"] = "Hypixel VIP"
+            else:
+                details["rank"] = "Default"
+
         days_inactive = int(raw_data.get("days_inactive", 0) or 0)
         if days_inactive > 30:
             base_price += min(days_inactive, 365) * self._tenure_per_day
             details["tenure_days"] = days_inactive
 
-        if any(w in full_text for w in ["mvp+", "mvpplus", "mvp +"]):
-            base_price += float(self._weights.get("mvp_plus", 450.0))
-            details["rank"] = "Hypixel MVP+"
-        elif "mvp" in full_text:
-            base_price += float(self._weights.get("mvp", 280.0))
-            details["rank"] = "Hypixel MVP"
-        elif "vip+" in full_text or "vip +" in full_text:
-            base_price += float(self._weights.get("vip_plus", 160.0))
-            details["rank"] = "Hypixel VIP+"
-        elif "vip" in full_text:
-            base_price += float(self._weights.get("vip", 90.0))
-            details["rank"] = "Hypixel VIP"
-        else:
-            details["rank"] = "Default"
-
-        bw_stars_match = re.search(r"(\d+)\s*(?:зв[её]зд|stars|bw)", full_text)
-        if bw_stars_match:
-            stars = int(bw_stars_match.group(1))
+        api_bw_stars = raw_data.get("bedwars_stars")
+        if api_bw_stars is not None:
+            stars = int(api_bw_stars)
             details["bedwars_stars"] = stars
             for thr in sorted(self._bw_thresholds, key=lambda x: x["stars"]):
                 if stars > int(thr["stars"]):
                     base_price += float(thr["bonus"])
+        else:
+            bw_stars_match = re.search(r"(\d+)\s*(?:зв[её]зд|stars|bw)", full_text)
+            if bw_stars_match:
+                stars = int(bw_stars_match.group(1))
+                details["bedwars_stars"] = stars
+                for thr in sorted(self._bw_thresholds, key=lambda x: x["stars"]):
+                    if stars > int(thr["stars"]):
+                        base_price += float(thr["bonus"])
 
         capes_found: list[str] = []
-        if "minecon" in full_text:
-            base_price += float(self._weights.get("minecon_cape", 2000.0))
-            capes_found.append("Minecon")
-        if "migrator" in full_text:
-            base_price += float(self._weights.get("migrator_cape", 150.0))
-            capes_found.append("Migrator")
-        if "optifine" in full_text:
-            base_price += float(self._weights.get("optifine_cape", 100.0))
-            capes_found.append("OptiFine")
+        api_capes = raw_data.get("capes") or []
+        if isinstance(api_capes, list):
+            for cape in api_capes:
+                c_lower = str(cape).lower()
+                if "minecon" in c_lower:
+                    base_price += float(self._weights.get("minecon_cape", 2000.0))
+                    capes_found.append("Minecon")
+                elif "migrator" in c_lower:
+                    base_price += float(self._weights.get("migrator_cape", 150.0))
+                    capes_found.append("Migrator")
+                elif "optifine" in c_lower:
+                    base_price += float(self._weights.get("optifine_cape", 100.0))
+                    capes_found.append("OptiFine")
+        
+        if not capes_found:
+            if "minecon" in full_text:
+                base_price += float(self._weights.get("minecon_cape", 2000.0))
+                capes_found.append("Minecon")
+            if "migrator" in full_text:
+                base_price += float(self._weights.get("migrator_cape", 150.0))
+                capes_found.append("Migrator")
+            if "optifine" in full_text:
+                base_price += float(self._weights.get("optifine_cape", 100.0))
+                capes_found.append("OptiFine")
+        
         if capes_found:
             details["capes"] = capes_found
 
         full_access = any(
             w in full_text for w in ["full access", "родная почта", "авторег", "fa"]
-        )
+        ) or bool(raw_data.get("mail_access"))
         details["full_access"] = full_access
         if full_access:
             base_price *= self._full_access_mult

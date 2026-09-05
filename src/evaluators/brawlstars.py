@@ -22,30 +22,45 @@ class BrawlStarsEvaluator(BaseEvaluator):
         details: dict[str, Any] = {}
         base_price = self._base
 
-        trophies_match = re.search(
-            r"(\d{1,2})[\s\.,]?k\s*кубк|(\d{4,6})\s*кубк", full_text
-        )
-        if trophies_match:
-            if trophies_match.group(1):
-                trophies = int(trophies_match.group(1)) * 1000
-            else:
-                trophies = int(trophies_match.group(2))
+        api_trophies = raw_data.get("trophies") or raw_data.get("brawlstars_trophies")
+        trophies = 0
+        if api_trophies is not None:
+            trophies = int(api_trophies)
             details["trophies"] = trophies
-            for thr in sorted(self._trophies_thresholds, key=lambda x: x["trophies"]):
-                if trophies > int(thr["trophies"]):
-                    base_price += float(thr["bonus"])
         else:
-            if "к кубков" in full_text or "тыс кубков" in full_text:
-                base_price += 150.0
+            trophies_match = re.search(
+                r"(\d{1,2})[\s\.,]?k\s*кубк|(\d{4,6})\s*кубк", full_text
+            )
+            if trophies_match:
+                if trophies_match.group(1):
+                    trophies = int(trophies_match.group(1)) * 1000
+                else:
+                    trophies = int(trophies_match.group(2))
+                details["trophies"] = trophies
+            elif "к кубков" in full_text or "тыс кубков" in full_text:
+                trophies = 15000
+                details["trophies"] = trophies
 
-        hc_match = re.search(r"(\d+)\s*гипер", full_text)
-        if hc_match:
-            hc_count = int(hc_match.group(1))
+        if trophies > 0:
+            for thr in sorted(self._trophies_thresholds, key=lambda x: x["trophies"]):
+                if trophies >= int(thr["trophies"]):
+                    base_price += float(thr["bonus"])
+
+        api_hc = raw_data.get("hypercharges_count") or raw_data.get("hypercharge_count")
+        hc_count = 0
+        if api_hc is not None:
+            hc_count = int(api_hc)
             base_price += hc_count * float(self._weights.get("hypercharge_each", 40.0))
             details["hypercharges_count"] = hc_count
-        elif "гиперзаряд" in full_text or "hypercharge" in full_text:
-            base_price += 80.0
-            details["hypercharge"] = True
+        else:
+            hc_match = re.search(r"(\d+)\s*гипер", full_text)
+            if hc_match:
+                hc_count = int(hc_match.group(1))
+                base_price += hc_count * float(self._weights.get("hypercharge_each", 40.0))
+                details["hypercharges_count"] = hc_count
+            elif "гиперзаряд" in full_text or "hypercharge" in full_text:
+                base_price += 80.0
+                details["hypercharge"] = True
 
         if any(
             w in full_text
