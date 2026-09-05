@@ -103,6 +103,7 @@ async def _apply_and_confirm(
                 settings.min_roi_percent,
                 settings.auto_buy_enabled,
                 settings.seen_cooldown_minutes,
+                settings.enabled_categories,
             ),
             parse_mode="HTML",
         )
@@ -114,6 +115,7 @@ async def _apply_and_confirm(
                 settings.min_roi_percent,
                 settings.auto_buy_enabled,
                 settings.seen_cooldown_minutes,
+                settings.enabled_categories,
             ),
             parse_mode="HTML",
         )
@@ -332,17 +334,19 @@ async def cmd_calibrate(message: Message) -> None:
 
 @dp.callback_query(F.data == "settings")
 async def cb_settings(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
     if not await _admin_guard(callback):
         return
     await state.clear()
     try:
         await callback.message.edit_text(
-            "⚙️ <b>Настройки</b>\n\nТекущие пороги. Нажмите, чтобы изменить:",
+            "⚙️ <b>Настройки</b>\n\nТекущие пороги и категории. Нажмите, чтобы изменить:",
             reply_markup=get_settings_keyboard(
                 settings.min_profit_rub,
                 settings.min_roi_percent,
                 settings.auto_buy_enabled,
                 settings.seen_cooldown_minutes,
+                settings.enabled_categories,
             ),
             parse_mode="HTML",
         )
@@ -354,10 +358,10 @@ async def cb_settings(callback: CallbackQuery, state: FSMContext) -> None:
                 settings.min_roi_percent,
                 settings.auto_buy_enabled,
                 settings.seen_cooldown_minutes,
+                settings.enabled_categories,
             ),
             parse_mode="HTML",
         )
-    await callback.answer()
 
 
 @dp.callback_query(F.data == "back_main")
@@ -382,14 +386,18 @@ async def cb_back_main(callback: CallbackQuery, state: FSMContext) -> None:
 
 @dp.callback_query(F.data == "toggle_auto")
 async def cb_toggle_auto(callback: CallbackQuery, state: FSMContext) -> None:
+    status_text = (
+        "🟢 Auto-Buy включён"
+        if not settings.auto_buy_enabled
+        else "🔴 Auto-Buy выключен"
+    )
+    await callback.answer(status_text)
     if not await _admin_guard(callback):
         return
     new_value = not settings.auto_buy_enabled
     update_runtime_setting("auto_buy_enabled", new_value)
     await set_setting("auto_buy_enabled", new_value)
     await state.clear()
-    status_text = "🟢 Auto-Buy включён" if new_value else "🔴 Auto-Buy выключен"
-    await callback.answer(status_text)
     try:
         await callback.message.edit_text(
             f"⚙️ <b>Настройки</b>\n\n<i>{status_text}</i>",
@@ -398,6 +406,7 @@ async def cb_toggle_auto(callback: CallbackQuery, state: FSMContext) -> None:
                 settings.min_roi_percent,
                 settings.auto_buy_enabled,
                 settings.seen_cooldown_minutes,
+                settings.enabled_categories,
             ),
             parse_mode="HTML",
         )
@@ -409,9 +418,45 @@ async def cb_toggle_auto(callback: CallbackQuery, state: FSMContext) -> None:
                 settings.min_roi_percent,
                 settings.auto_buy_enabled,
                 settings.seen_cooldown_minutes,
+                settings.enabled_categories,
             ),
             parse_mode="HTML",
         )
+
+
+@dp.callback_query(F.data.startswith("toggle_cat_"))
+async def cb_toggle_category(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if not await _admin_guard(callback):
+        return
+    cat = callback.data.split("_")[2]
+    current_list = settings.enabled_category_list()
+    if cat in current_list:
+        if len(current_list) <= 1:
+            await callback.answer(
+                "⚠️ Должна быть включена хотя бы одна категория!", show_alert=True
+            )
+            return
+        current_list.remove(cat)
+    else:
+        current_list.append(cat)
+
+    new_str = ",".join(current_list)
+    update_runtime_setting("enabled_categories", new_str)
+    await set_setting("enabled_categories", new_str)
+
+    try:
+        await callback.message.edit_reply_markup(
+            reply_markup=get_settings_keyboard(
+                settings.min_profit_rub,
+                settings.min_roi_percent,
+                settings.auto_buy_enabled,
+                settings.seen_cooldown_minutes,
+                settings.enabled_categories,
+            )
+        )
+    except aiogram_exc:
+        pass
 
 
 # =============================================================================
@@ -633,6 +678,7 @@ async def cb_confirm_cooldown(callback: CallbackQuery, state: FSMContext) -> Non
 
 @dp.callback_query(F.data == "cancel_edit")
 async def cb_cancel_edit(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer("Отменено")
     if not await _admin_guard(callback):
         return
     await state.clear()
@@ -644,6 +690,7 @@ async def cb_cancel_edit(callback: CallbackQuery, state: FSMContext) -> None:
                 settings.min_roi_percent,
                 settings.auto_buy_enabled,
                 settings.seen_cooldown_minutes,
+                settings.enabled_categories,
             ),
             parse_mode="HTML",
         )
@@ -655,10 +702,10 @@ async def cb_cancel_edit(callback: CallbackQuery, state: FSMContext) -> None:
                 settings.min_roi_percent,
                 settings.auto_buy_enabled,
                 settings.seen_cooldown_minutes,
+                settings.enabled_categories,
             ),
             parse_mode="HTML",
         )
-    await callback.answer("Отменено")
 
 
 # =============================================================================
@@ -668,6 +715,7 @@ async def cb_cancel_edit(callback: CallbackQuery, state: FSMContext) -> None:
 
 @dp.callback_query(F.data.startswith("buy_"))
 async def cb_buy_item(callback: CallbackQuery) -> None:
+    await callback.answer("⏳ Покупаем...")
     if not await _admin_guard(callback):
         return
     parts = callback.data.split("_")

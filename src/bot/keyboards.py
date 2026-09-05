@@ -45,9 +45,19 @@ def get_main_keyboard(parser_active: bool) -> InlineKeyboardMarkup:
 
 
 def get_settings_keyboard(
-    min_profit: float, min_roi: float, auto_buy: bool, cooldown: int
+    min_profit: float,
+    min_roi: float,
+    auto_buy: bool,
+    cooldown: int,
+    enabled_cats: str = "minecraft,brawlstars,valorant",
 ) -> InlineKeyboardMarkup:
     auto_label = "🟢 Auto-Buy Вкл" if auto_buy else "🔴 Auto-Buy Выкл"
+    cats = [c.strip() for c in enabled_cats.split(",") if c.strip()]
+
+    mc_icon = "🟩" if "minecraft" in cats else "🟥"
+    bs_icon = "🟩" if "brawlstars" in cats else "🟥"
+    val_icon = "🟩" if "valorant" in cats else "🟥"
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -65,10 +75,21 @@ def get_settings_keyboard(
                     text=f"⏱ Cooldown: {cooldown} мин", callback_data="set_cooldown"
                 )
             ],
-    [InlineKeyboardButton(text=auto_label, callback_data="toggle_auto")],
-    [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")],
-]
-)
+            [
+                InlineKeyboardButton(
+                    text=f"{mc_icon} Minecraft", callback_data="toggle_cat_minecraft"
+                ),
+                InlineKeyboardButton(
+                    text=f"{bs_icon} Brawl Stars", callback_data="toggle_cat_brawlstars"
+                ),
+                InlineKeyboardButton(
+                    text=f"{val_icon} Valorant", callback_data="toggle_cat_valorant"
+                ),
+            ],
+            [InlineKeyboardButton(text=auto_label, callback_data="toggle_auto")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")],
+        ]
+    )
 
 
 def get_edit_keyboard(cancel_action: str = "settings") -> InlineKeyboardMarkup:
